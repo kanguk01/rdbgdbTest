@@ -1,0 +1,38 @@
+services:
+  mysql:
+    image: mysql:latest
+    container_name: mysql_container
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: kanguk01
+      MYSQL_DATABASE: test_db
+    ports:
+      - "3306:3306"
+    networks:
+      - kanguk_network
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  neo4j:
+    image: neo4j:latest
+    container_name: neo4j_container
+    restart: always
+    environment:
+      NEO4J_AUTH: neo4j/kanguk01  # 사용자: neo4j, 비밀번호: kanguk
+    ports:
+      - "7474:7474"  # Neo4j 웹 인터페이스
+      - "7687:7687"  # Bolt 프로토콜
+    networks:
+      - kanguk_network
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+
+
+networks:
+  kanguk_network:
+
+volumes:
+  mysql_data:
+  neo4j_data:
+  neo4j_logs:
