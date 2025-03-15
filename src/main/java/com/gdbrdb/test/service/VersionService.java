@@ -28,7 +28,7 @@ public class VersionService {
     private static final Logger log = LoggerFactory.getLogger(VersionService.class);
 
     /** 원하는 규모(scale) */
-    private static final int SCALE = 1000;
+    private static final int SCALE = 10000;
 
     // 체인 범위
     private static final int CHAIN_START = 1;
@@ -69,20 +69,53 @@ public class VersionService {
         return mysqlRepo.save(newVersion);
     }
 
-    /** MySQL: 모든 조상 조회 */
-    public List<Long> getMySQLAllAncestorIds(Long versionId) {
-        return mysqlRepo.findAllAncestorIds(versionId);
+    /** MySQL: 모든 조상 **엔티티** 조회 */
+    public List<VersionEntity> getMySQLAllAncestorEntities(Long versionId) {
+        return mysqlRepo.findAllAncestorEntities(versionId);
     }
 
-    /** MySQL: LCA(최하단 공통 조상) */
-    public Long getMySQLLowestCommonAncestor(Long idA, Long idB) {
-        Set<Long> ancestorsA = new HashSet<>(getMySQLAllAncestorIds(idA));
-        ancestorsA.add(idA);
-        Set<Long> ancestorsB = new HashSet<>(getMySQLAllAncestorIds(idB));
-        ancestorsB.add(idB);
-        ancestorsA.retainAll(ancestorsB);
-        if (ancestorsA.isEmpty()) return null;
-        return ancestorsA.stream().max(Long::compareTo).orElse(null);
+    /**
+     * MySQL: LCA(최하단 공통 조상) (엔티티 기반)
+     * - 여기서는 단순히 'ID가 가장 큰 조상'을 선정하는 방식 그대로 두지만,
+     *   만약 '최신 버전'의 의미가 내용적으로 달라진다면
+     *   다른 기준(날짜가 최신 등)을 쓸 수도 있습니다.
+     */
+    public VersionEntity getMySQLLowestCommonAncestorEntity(Long idA, Long idB) {
+        // A의 조상
+        List<VersionEntity> ancestorsA = getMySQLAllAncestorEntities(idA);
+        // A 자신도 포함
+        ancestorsA.add(mysqlRepo.findById(idA).orElse(null));
+        // Map으로 (id -> entity) 빠른 조회
+        Map<Long, VersionEntity> mapA = new HashMap<>();
+        for (VersionEntity a : ancestorsA) {
+            if (a != null) {
+                mapA.put(a.getId(), a);
+            }
+        }
+
+        // B의 조상
+        List<VersionEntity> ancestorsB = getMySQLAllAncestorEntities(idB);
+        // B 자신도 포함
+        ancestorsB.add(mysqlRepo.findById(idB).orElse(null));
+
+        // 교집합 중 ID가 가장 큰 것을 찾음
+        VersionEntity lca = null;
+        for (VersionEntity b : ancestorsB) {
+            if (b != null && mapA.containsKey(b.getId())) {
+                // 교집합 노드
+                if (lca == null || b.getId() > lca.getId()) {
+                    lca = b;
+                }
+            }
+        }
+        return lca;
+    }
+
+    /**
+     * MySQL: 자손 **엔티티** 조회
+     */
+    public List<VersionEntity> getMySQLAllDescendantEntities(Long versionId) {
+        return mysqlRepo.findAllDescendantEntities(versionId);
     }
 
     /** MySQL: EXPLAIN */

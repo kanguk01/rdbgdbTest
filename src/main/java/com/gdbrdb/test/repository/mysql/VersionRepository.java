@@ -10,7 +10,9 @@ import java.util.List;
 public interface VersionRepository extends JpaRepository<VersionEntity, Long> {
 
     /**
-     * 특정 버전의 '모든 조상(ancestor) ID'를 찾는 재귀 CTE 예시.
+     * [수정안] 특정 버전의 '모든 조상(ancestor) VersionEntity'를 찾는 재귀 CTE.
+     *  - 기존에는 parent_version_id만 반환했지만, 이제 versions 테이블과 JOIN 해서
+     *    VersionEntity 전체를 반환.
      */
     @Query(value = """
         WITH RECURSIVE ancestors AS (
@@ -24,14 +26,15 @@ public interface VersionRepository extends JpaRepository<VersionEntity, Long> {
           FROM version_parents vp
           INNER JOIN ancestors a ON vp.child_version_id = a.parent_version_id
         )
-        SELECT parent_version_id
-        FROM ancestors
-        WHERE parent_version_id IS NOT NULL
+        SELECT v.* 
+        FROM versions v
+        INNER JOIN ancestors a ON v.id = a.parent_version_id
+        WHERE a.parent_version_id IS NOT NULL
         """, nativeQuery = true)
-    List<Long> findAllAncestorIds(@Param("startId") Long startId);
+    List<VersionEntity> findAllAncestorEntities(@Param("startId") Long startId);
 
     /**
-     * 특정 버전의 '모든 자식(children) ID'를 찾는 재귀 CTE 예시.
+     * [수정안] 특정 버전의 '모든 자손(descendant) VersionEntity'를 찾는 재귀 CTE.
      */
     @Query(value = """
         WITH RECURSIVE descendants AS (
@@ -45,14 +48,15 @@ public interface VersionRepository extends JpaRepository<VersionEntity, Long> {
           FROM version_parents vp
           INNER JOIN descendants d ON vp.parent_version_id = d.child_version_id
         )
-        SELECT child_version_id
-        FROM descendants
-        WHERE child_version_id IS NOT NULL
+        SELECT v.* 
+        FROM versions v
+        INNER JOIN descendants d ON v.id = d.child_version_id
+        WHERE d.child_version_id IS NOT NULL
         """, nativeQuery = true)
-    List<Long> findAllDescendantIds(@Param("startId") Long startId);
+    List<VersionEntity> findAllDescendantEntities(@Param("startId") Long startId);
 
     /**
-     * 두 버전 간 '공통 조상 후보 ID'들을 찾는 예시.
+     * 두 버전 간 '공통 조상 후보' (ID만 뽑는 예시는 참고 용도)
      */
     @Query(value = """
         WITH RECURSIVE ancestorsA AS (
@@ -79,9 +83,14 @@ public interface VersionRepository extends JpaRepository<VersionEntity, Long> {
     List<Long> findCommonAncestorIds(@Param("idA") Long idA, @Param("idB") Long idB);
 
     /**
-     * EXPLAIN 실행 계획: 단순 SELECT 쿼리에 대한 실행 계획을 조회.
-     * (실제 재귀 CTE에 대한 EXPLAIN은 MySQL 버전과 설정에 따라 다르게 보일 수 있음)
+     * EXPLAIN 실행 계획
      */
     @Query(value = "EXPLAIN SELECT * FROM versions WHERE id = :id", nativeQuery = true)
     List<Object[]> explainSelectById(@Param("id") Long id);
+
+    /*
+       기존의 findAllAncestorIds, findAllDescendantIds 등
+       ID만 반환하는 메서드들도 필요하면 둬도 되고,
+       테스트 목적에 따라 제거해도 됨.
+     */
 }

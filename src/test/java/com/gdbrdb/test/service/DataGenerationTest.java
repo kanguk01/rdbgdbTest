@@ -18,7 +18,7 @@ public class DataGenerationTest {
     @Autowired
     private VersionService versionService;
 
-    private static final int SCALE = 1000;  // 스케일
+    private static final int SCALE = 10000;  // 스케일
 
     /**
      * 1) MySQL Chain

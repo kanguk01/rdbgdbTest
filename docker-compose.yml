@@ -12,6 +12,8 @@ services:
       - kanguk_network
     volumes:
       - mysql_data:/var/lib/mysql
+      - ./mysql/my.cnf:/etc/mysql/conf.d/my.cnf
+
 
   neo4j:
     image: neo4j:latest
