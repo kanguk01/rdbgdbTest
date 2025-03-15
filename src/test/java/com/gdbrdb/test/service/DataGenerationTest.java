@@ -1,13 +1,15 @@
 package com.gdbrdb.test.service;
 
-import com.gdbrdb.test.service.VersionService;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 /**
  * 테스트 데이터(체인, 이진트리, 복합트리) 생성 테스트
- * MySQL / Neo4j 각각에 대해 대량 생성 후, 시간과 메모리 사용량을 로그로 확인
+ * - MySQL / Neo4j 각각에 대해 대량 생성 후, 시간과 메모리 사용량을 로그로 확인
+ * - 체인(1..scale), 이진(scale+1..2*scale)은 기존 방식
+ * - 복합(2*scale+1..3*scale)은 VersionService.generateComplexTreeData()로
+ *   MySQL & Neo4j 동시에 "동일한" 랜덤 구조를 생성
  */
 @SpringBootTest
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
@@ -16,14 +18,15 @@ public class DataGenerationTest {
     @Autowired
     private VersionService versionService;
 
+    private static final int SCALE = 1000;  // 스케일
+
     /**
-     * 체인 데이터 생성 (MySQL)
+     * 1) MySQL Chain
      */
     @Order(1)
     @Test
     @DisplayName("MySQL Chain Data Generation")
     void generateMySQLChainDataTest() {
-        int scale = 10000; // 원하는 스케일로 조정
         long startMemory = versionService.getUsedMemory();
         long startTime = System.currentTimeMillis();
 
@@ -31,47 +34,43 @@ public class DataGenerationTest {
 
         long endTime = System.currentTimeMillis();
         long endMemory = versionService.getUsedMemory();
-
         long timeElapsed = endTime - startTime;
         long memoryUsed = endMemory - startMemory;
 
-        System.out.println("[MySQL-CHAIN] scale=" + scale
+        System.out.println("[MySQL-CHAIN] scale=" + SCALE
                 + ", time=" + timeElapsed + "ms"
                 + ", memUsed=" + memoryUsed + " bytes");
     }
 
     /**
-     * 체인 데이터 생성 (Neo4j)
+     * 2) Neo4j Chain
      */
     @Order(2)
     @Test
     @DisplayName("Neo4j Chain Data Generation")
     void generateNeo4jChainDataTest() {
-        int scale = 10000; // 원하는 스케일로 조정
         long startMemory = versionService.getUsedMemory();
         long startTime = System.currentTimeMillis();
 
-        versionService.generateNeo4jChainData();  // <-- 이제 배치 삽입임
+        versionService.generateNeo4jChainData();
 
         long endTime = System.currentTimeMillis();
         long endMemory = versionService.getUsedMemory();
-
         long timeElapsed = endTime - startTime;
         long memoryUsed = endMemory - startMemory;
 
-        System.out.println("[Neo4j-CHAIN] scale=" + scale
+        System.out.println("[Neo4j-CHAIN] scale=" + SCALE
                 + ", time=" + timeElapsed + "ms"
                 + ", memUsed=" + memoryUsed + " bytes");
     }
 
     /**
-     * 이진 트리 데이터 생성 (MySQL)
+     * 3) MySQL Binary
      */
     @Order(3)
     @Test
     @DisplayName("MySQL Binary Tree Data Generation")
     void generateMySQLBinaryTreeDataTest() {
-        int scale = 10000;
         long startMemory = versionService.getUsedMemory();
         long startTime = System.currentTimeMillis();
 
@@ -79,83 +78,57 @@ public class DataGenerationTest {
 
         long endTime = System.currentTimeMillis();
         long endMemory = versionService.getUsedMemory();
-
         long timeElapsed = endTime - startTime;
         long memoryUsed = endMemory - startMemory;
 
-        System.out.println("[MySQL-TREE] scale=" + scale
+        System.out.println("[MySQL-TREE] scale=" + SCALE
                 + ", time=" + timeElapsed + "ms"
                 + ", memUsed=" + memoryUsed + " bytes");
     }
 
     /**
-     * 이진 트리 데이터 생성 (Neo4j)
+     * 4) Neo4j Binary
      */
     @Order(4)
     @Test
     @DisplayName("Neo4j Binary Tree Data Generation")
     void generateNeo4jBinaryTreeDataTest() {
-        int scale = 10000;
         long startMemory = versionService.getUsedMemory();
         long startTime = System.currentTimeMillis();
 
-        versionService.generateNeo4jBinaryTreeData();  // 배치 삽입
+        versionService.generateNeo4jBinaryTreeData();
 
         long endTime = System.currentTimeMillis();
         long endMemory = versionService.getUsedMemory();
-
         long timeElapsed = endTime - startTime;
         long memoryUsed = endMemory - startMemory;
 
-        System.out.println("[Neo4j-TREE] scale=" + scale
+        System.out.println("[Neo4j-TREE] scale=" + SCALE
                 + ", time=" + timeElapsed + "ms"
                 + ", memUsed=" + memoryUsed + " bytes");
     }
 
     /**
-     * 복합(불규칙) 트리 데이터 생성 (MySQL)
+     * 5) 복합(불규칙) 트리 데이터 (MySQL + Neo4j 동시에)
+     *    => VersionService.generateComplexTreeData() 한 번 호출로
+     *       MySQL, Neo4j 모두 같은 랜덤 구조를 삽입
      */
     @Order(5)
     @Test
-    @DisplayName("MySQL Complex Tree Data Generation")
-    void generateMySQLComplexTreeDataTest() {
-        int scale = 10000;
+    @DisplayName("Complex Tree Data Generation (MySQL + Neo4j together)")
+    void generateComplexTreeDataTest() {
         long startMemory = versionService.getUsedMemory();
         long startTime = System.currentTimeMillis();
 
-        versionService.generateMySQLComplexTreeData();
+        // 한 번만 호출 => 내부에서 MySQL -> Neo4j 순으로 삽입
+        versionService.generateComplexTreeData();
 
         long endTime = System.currentTimeMillis();
         long endMemory = versionService.getUsedMemory();
-
         long timeElapsed = endTime - startTime;
         long memoryUsed = endMemory - startMemory;
 
-        System.out.println("[MySQL-COMPLEX] scale=" + scale
-                + ", time=" + timeElapsed + "ms"
-                + ", memUsed=" + memoryUsed + " bytes");
-    }
-
-    /**
-     * 복합(불규칙) 트리 데이터 생성 (Neo4j)
-     */
-    @Order(6)
-    @Test
-    @DisplayName("Neo4j Complex Tree Data Generation")
-    void generateNeo4jComplexTreeDataTest() {
-        int scale = 10000;
-        long startMemory = versionService.getUsedMemory();
-        long startTime = System.currentTimeMillis();
-
-        versionService.generateNeo4jComplexTreeData(); // 배치 삽입
-
-        long endTime = System.currentTimeMillis();
-        long endMemory = versionService.getUsedMemory();
-
-        long timeElapsed = endTime - startTime;
-        long memoryUsed = endMemory - startMemory;
-
-        System.out.println("[Neo4j-COMPLEX] scale=" + scale
+        System.out.println("[Complex-Tree] scale=" + SCALE
                 + ", time=" + timeElapsed + "ms"
                 + ", memUsed=" + memoryUsed + " bytes");
     }

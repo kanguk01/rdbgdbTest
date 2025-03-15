@@ -4,16 +4,13 @@ import com.gdbrdb.test.entity.neo4j.VersionNodeNew;
 import org.springframework.data.neo4j.repository.Neo4jRepository;
 import org.springframework.data.neo4j.repository.query.Query;
 import org.springframework.data.repository.query.Param;
+
 import java.util.List;
 import java.util.Map;
 
 public interface VersionNodeNewRepository extends Neo4jRepository<VersionNodeNew, String> {
 
-    /**
-     * UNWIND를 이용한 배치 삽입 쿼리
-     * 각 row는 { nodeId, content, parents } 구조의 Map이어야 합니다.
-     * 'parents'는 부모 노드의 nodeId(String) 리스트입니다.
-     */
+    // 1) 배치 삽입
     @Query("""
            UNWIND $batch AS row
            CREATE (v:VersionNew {nodeId: row.nodeId, content: row.content})
@@ -25,30 +22,24 @@ public interface VersionNodeNewRepository extends Neo4jRepository<VersionNodeNew
            """)
     Integer bulkInsertNodes(@Param("batch") List<Map<String, Object>> batch);
 
-    /**
-     * 특정 노드의 모든 조상 조회
-     */
+    // 2) "조상"은 child←parent 경로
     @Query("""
-        MATCH (v:VersionNew {nodeId: $startId})-[:PARENT_OF*]->(ancestor:VersionNew)
+        MATCH (v:VersionNew {nodeId: $startId})<-[:PARENT_OF*]-(ancestor:VersionNew)
         RETURN ancestor
         """)
     List<VersionNodeNew> findAllAncestors(@Param("startId") String startId);
 
-    /**
-     * 특정 노드의 모든 자식 조회 (역방향)
-     */
+    // 3) "자손"은 parent→child 경로
     @Query("""
-        MATCH (v:VersionNew {nodeId: $startId})<-[:PARENT_OF*]-(descendant:VersionNew)
+        MATCH (v:VersionNew {nodeId: $startId})-[:PARENT_OF*]->(descendant:VersionNew)
         RETURN descendant
         """)
     List<VersionNodeNew> findAllDescendants(@Param("startId") String startId);
 
-    /**
-     * EXPLAIN 실행 계획: 특정 노드의 조상 조회 쿼리에 대해 실행 계획을 확인.
-     */
+    // 4) EXPLAIN 예시(조상)
     @Query("""
-        EXPLAIN 
-        MATCH (v:VersionNew {nodeId: $startId})-[:PARENT_OF*]->(ancestor:VersionNew)
+        EXPLAIN
+        MATCH (v:VersionNew {nodeId: $startId})<-[:PARENT_OF*]-(ancestor:VersionNew)
         RETURN ancestor
         """)
     String explainAncestors(@Param("startId") String startId);

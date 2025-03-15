@@ -1,5 +1,6 @@
 package com.gdbrdb.test.entity.neo4j;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.*;
 import org.springframework.data.neo4j.core.schema.Id;
 import org.springframework.data.neo4j.core.schema.Node;
@@ -9,30 +10,37 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * nodeId는 이제 사용자가 직접 넣을 수도 있게 하고,
- * 디폴트 UUID.randomUUID()는 제거
+ * VersionNodeNew
+ * - nodeId, content 필드
+ * - 부모 리스트를 INCOMING 관계로 맵핑
+ *   parent --(:PARENT_OF)--> child
+ *   child 는 @Relationship(direction=INCOMING)으로 부모를 참조
  */
 @Node("VersionNew")
-@Getter @Setter
+@Getter
+@Setter
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties({"parents"}) // 직렬화 시 무한 루프 방지 (선택)
 public class VersionNodeNew {
 
     @Id
-    private String nodeId; // 더 이상 = UUID.randomUUID().toString() 없음
+    private String nodeId;
 
     private String content;
 
-    // 부모 관계
-    @Relationship(type = "PARENT_OF", direction = Relationship.Direction.OUTGOING)
+    /**
+     * "PARENT_OF" 관계가
+     * parent (OUTGOING) -> child 이므로,
+     * child 입장에서는 INCOMING
+     */
+    @Relationship(type = "PARENT_OF", direction = Relationship.Direction.INCOMING)
     private List<VersionNodeNew> parents = new ArrayList<>();
 
-    // 부모 관계 추가
     public void addParent(VersionNodeNew parent) {
         this.parents.add(parent);
     }
 
-    // 편의 생성자 (nodeId, content 동시에 넣어주기)
     public VersionNodeNew(String nodeId, String content) {
         this.nodeId = nodeId;
         this.content = content;
