@@ -46,4 +46,13 @@ public class DagScenarioService {
     public DagVersionNode findNeoLatestCommonAncestor(String idA, String idB) {
         return neoRepo.findLatestCommonAncestor(idA, idB);
     }
+
+    // --- 시나리오 E ---
+    public List<DagVersionEntity> findMySqlUpTo3StepsByAuthorTitle(Long startId, String author, String titlePart) {
+        return mysqlRepo.findUpTo3StepsByAuthorTitle(startId, author, titlePart);
+    }
+
+    public List<DagVersionNode> findNeoUpTo3StepsByAuthorTitle(String startId, String author, String titlePart) {
+        return neoRepo.findUpTo3StepsByAuthorTitle(startId, author, titlePart);
+    }
 }

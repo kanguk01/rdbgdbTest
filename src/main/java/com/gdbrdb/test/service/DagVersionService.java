@@ -9,6 +9,8 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.time.Month;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.*;
 
 @Service
@@ -25,170 +27,148 @@ public class DagVersionService {
             "hwp 파일 수정", "pdf 파일 수정", "문서 작업", "기획서 수정", "ppt 슬라이드 변경"
     );
 
-    /**
-     * 메모리 사용량 측정 (원래 VersionService 등과 비슷한 형태)
-     */
-    public long getUsedMemory() {
-        Runtime r = Runtime.getRuntime();
-        return r.totalMemory() - r.freeMemory();
-    }
-
-    /**
-     * 1) MySQL + 2) Neo4j에 DAG 데이터 1만개 생성 (다중 부모 허용)
-     *  - 사이클 방지: 부모는 자기보다 ID가 작은 노드들 중에서 선택
-     *    + 이미 조상에 있으면 skip
-     */
     public void generateDagData() {
         long start = System.currentTimeMillis();
         long startMem = getUsedMemory();
 
-        // 1) MySQL DAG 생성
-        generateMySqlDag();
+        // 1) 미리 "child->parents" 관계 전부 계산
+        Map<Long, List<Long>> childToParents = buildChildParentMap();
 
+        // 2) MySQL 삽입 (동일 구조)
+        insertMySqlDag(childToParents);
         long afterMy = System.currentTimeMillis();
         long memMy = getUsedMemory();
         System.out.println("[MySQL DAG] time=" + (afterMy - start) + "ms, memUsed=" + (memMy - startMem));
 
-        // 2) Neo4j DAG 생성
-        generateNeo4jDag();
-
+        // 3) Neo4j 삽입 (동일 구조)
+        insertNeo4jDag(childToParents);
         long end = System.currentTimeMillis();
         long endMem = getUsedMemory();
         System.out.println("[Neo4j DAG] time=" + (end - afterMy) + "ms, memUsed=" + (endMem - memMy));
-
         System.out.println("[DAG total] time=" + (end - start) + "ms, memUsed=" + (endMem - startMem));
     }
 
-    private void generateMySqlDag() {
-        // ID -> entity 캐시
-        List<DagVersionEntity> allCreated = new ArrayList<>();
-        allCreated.add(null); // index 0 비우기 (편의상)
+    /**
+     * 1..DAG_SCALE 노드에 대해, 각 child -> (최대 1~3개) 부모 IDs
+     * (사이클 최소화 로직은 동일)
+     */
+    private Map<Long, List<Long>> buildChildParentMap() {
+        Map<Long, List<Long>> childToParents = new LinkedHashMap<>();
+        childToParents.put(1L, Collections.emptyList()); // 루트(1)
 
-        // 우선 루트(1번) 만들어두기
-        DagVersionEntity root = createMysqlOne(1L, Collections.emptyList());
-        allCreated.add(root);
-
+        Random rand = new Random();
         // i=2..DAG_SCALE
         for (long i = 2; i <= DAG_SCALE; i++) {
-            // 부모 후보를 랜덤하게 1~3개 고르되, 이미 조상이면 안 됨
-            // (여기서는 간단히 "i보다 작은 애들 중 1~3개"를 고르고,
-            //  중복/사이클은 무시 or 최소한으로 체크)
-            List<Long> parents = pickRandomParents(i, allCreated);
-
-            // 엔티티 생성
-            DagVersionEntity newEnt = createMysqlOne(i, parents);
-            allCreated.add(newEnt);
-        }
-    }
-
-    private DagVersionEntity createMysqlOne(Long nodeId, List<Long> parentIds) {
-        DagVersionEntity ent = new DagVersionEntity();
-        ent.setTitle(randTitle());
-        ent.setContent("임의 내용.. nodeId=" + nodeId);
-        ent.setAuthor(randAuthor());
-        ent.setCreatedTime(randTime2025FebMar());
-
-        if (!parentIds.isEmpty()) {
-            List<DagVersionEntity> parentEnts = dagMysqlRepo.findAllById(parentIds);
-            for (DagVersionEntity p : parentEnts) {
-                ent.addParent(p);
+            long maxParentRange = i - 1;
+            if (maxParentRange < 1) {
+                childToParents.put(i, Collections.emptyList());
+                continue;
             }
+            int parentCount = rand.nextInt(3) + 1; // 1~3
+            Set<Long> chosen = new HashSet<>();
+            for (int c = 0; c < parentCount; c++) {
+                long p = 1 + rand.nextLong(maxParentRange);
+                chosen.add(p);
+            }
+            List<Long> parentList = new ArrayList<>(chosen);
+            childToParents.put(i, parentList);
         }
-
-        return dagMysqlRepo.save(ent);
+        return childToParents;
     }
 
-    // 사이클 방지 or 최소화 로직 (간단히 구현)
-    private List<Long> pickRandomParents(Long childId, List<DagVersionEntity> allEnts) {
-        Random rand = new Random();
-        int parentCount = rand.nextInt(3) + 1; // 1~3
-        Set<Long> chosen = new HashSet<>();
+    /**
+     * MySQL에 동일 구조 삽입
+     */
+    private void insertMySqlDag(Map<Long, List<Long>> childToParents) {
+        // 캐싱: ID->entity
+        Map<Long, DagVersionEntity> cache = new HashMap<>();
+        // 1..DAG_SCALE
+        for (long i = 1; i <= DAG_SCALE; i++) {
+            DagVersionEntity ent = new DagVersionEntity();
+            ent.setTitle(randTitle());
+            ent.setContent("임의 내용.. nodeId=" + i);
+            ent.setAuthor(randAuthor());
+            // "2025-02-15T17:15:08Z" 형태가 아니라, MySQL은 LocalDateTime 그대로
+            ent.setCreatedTime(randTime2025FebMar());
 
-        // 단순 버전:
-        // childId보다 작은 범위에서 parentCount개를 랜덤선택
-        // (사실 엄밀히 '조상 검사'를 해야 하는데, 여기선 예시로 간단화)
-        long maxParentRange = childId - 1;
-        if (maxParentRange < 1) return Collections.emptyList();
-
-        // 최대 parentCount번 시도
-        // (사실 childId가 2,3이면 parent 후보가 별로 없어서 중복날 수도)
-        for (int i = 0; i < parentCount; i++) {
-            long p = 1 + rand.nextLong(maxParentRange);
-            chosen.add(p);
+            // 부모 설정
+            List<Long> parents = childToParents.get(i);
+            if (parents != null && !parents.isEmpty()) {
+                List<DagVersionEntity> parentEnts = new ArrayList<>();
+                for (Long pId : parents) {
+                    DagVersionEntity pEnt = cache.get(pId);  // 이미 insert된
+                    if (pEnt != null) {
+                        parentEnts.add(pEnt);
+                    }
+                }
+                for (DagVersionEntity p : parentEnts) {
+                    ent.addParent(p);
+                }
+            }
+            DagVersionEntity saved = dagMysqlRepo.save(ent);
+            cache.put(i, saved);
         }
-
-        // 여기서 더 엄밀히 "사이클 체크"를 하려면,
-        // chosen 중에 이미 childId의 조상인 노드가 있는지 DFS 등으로 검사 가능.
-        // 데모 목적이므로 간단히 skip.
-
-        return new ArrayList<>(chosen);
     }
 
-    private void generateNeo4jDag() {
-        // 루트(1)부터 10000까지, parents를 동일 로직으로 pick, batch insert
-        List<Map<String,Object>> batch = new ArrayList<>(DAG_SCALE);
+    /**
+     * Neo4j에 동일 구조 삽입
+     * - 여기서 createdTime은 "ISO8601 + Z" 형태로 저장
+     * - bulkInsertNodes 쿼리에서 datetime(...) 변환
+     */
+    private void insertNeo4jDag(Map<Long, List<Long>> childToParents) {
+        List<Map<String, Object>> batch = new ArrayList<>(DAG_SCALE);
 
-        // i=1 => 루트
-        Map<String,Object> rootMap = new HashMap<>();
-        rootMap.put("nodeId", "1");
-        rootMap.put("title", randTitle());
-        rootMap.put("content", "임의 내용.. nodeId=1");
-        rootMap.put("author", randAuthor());
-        rootMap.put("createdTime", randTime2025FebMar().toString());
-        rootMap.put("parents", Collections.emptyList());
-        batch.add(rootMap);
-
-        // 2..DAG_SCALE
-        Random rand = new Random();
-        for (long i = 2; i <= DAG_SCALE; i++) {
+        for (long i = 1; i <= DAG_SCALE; i++) {
             Map<String,Object> row = new HashMap<>();
             row.put("nodeId", String.valueOf(i));
             row.put("title", randTitle());
             row.put("content", "임의 내용.. nodeId=" + i);
             row.put("author", randAuthor());
-            row.put("createdTime", randTime2025FebMar().toString());
 
-            int parentCount = rand.nextInt(3) + 1; // 1~3
-            long maxParent = i - 1;
-            if (maxParent < 1) {
+            // LocalDateTime -> OffsetDateTime(UTC), then to string with 'Z'
+            LocalDateTime dt = randTime2025FebMar();
+            OffsetDateTime odt = dt.atOffset(ZoneOffset.UTC);  // 2025-03-15T04:09:10Z
+            String dateTimeStr = odt.toString(); // e.g. "2025-03-15T04:09:10Z"
+            row.put("createdTime", dateTimeStr);
+
+            List<Long> parents = childToParents.get(i);
+            if (parents == null || parents.isEmpty()) {
                 row.put("parents", Collections.emptyList());
             } else {
-                Set<String> parents = new HashSet<>();
-                for (int k = 0; k < parentCount; k++) {
-                    long p = 1 + rand.nextLong(maxParent);
-                    parents.add(String.valueOf(p));
+                List<String> parentStr = new ArrayList<>();
+                for (Long p : parents) {
+                    parentStr.add(String.valueOf(p));
                 }
-                row.put("parents", new ArrayList<>(parents));
+                row.put("parents", parentStr);
             }
             batch.add(row);
         }
-
         dagNeoRepo.bulkInsertNodes(batch);
     }
 
-    /* 유틸 메서드들 */
+    // (아래 유틸, 기존과 동일)
     private String randTitle() {
         Random rand = new Random();
         return SAMPLE_TITLES.get(rand.nextInt(SAMPLE_TITLES.size()));
     }
-
     private String randAuthor() {
         Random rand = new Random();
         return AUTHORS.get(rand.nextInt(AUTHORS.size()));
     }
-
     private LocalDateTime randTime2025FebMar() {
         // 2025년 2월 1일 ~ 3월 31일 사이
-        LocalDateTime start = LocalDateTime.of(2025, Month.FEBRUARY, 1, 0, 0);
-        LocalDateTime end = LocalDateTime.of(2025, Month.MARCH, 31, 23, 59);
-
+        LocalDateTime start = LocalDateTime.of(2025, 2, 1, 0, 0);
+        LocalDateTime end = LocalDateTime.of(2025, 3, 31, 23, 59);
         long startSec = start.toEpochSecond(java.time.ZoneOffset.UTC);
         long endSec = end.toEpochSecond(java.time.ZoneOffset.UTC);
-
         long diff = endSec - startSec;
         Random r = new Random();
         long randSec = startSec + (long)(r.nextDouble() * diff);
-
         return LocalDateTime.ofEpochSecond(randSec, 0, java.time.ZoneOffset.UTC);
+    }
+
+    public long getUsedMemory() {
+        Runtime r = Runtime.getRuntime();
+        return r.totalMemory() - r.freeMemory();
     }
 }

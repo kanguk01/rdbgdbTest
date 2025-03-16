@@ -103,4 +103,30 @@ public interface DagVersionRepository extends JpaRepository<DagVersionEntity, Lo
             @Param("idA") Long idA,
             @Param("idB") Long idB
     );
+
+    /**
+     * 시나리오 E) (예) 특정 노드로부터 최대 3단계 (parents) 이내 노드 중
+     * author='chulsu' AND title LIKE '%ppt%'인 노드를 찾는다.
+     *  - Depth=3 이하 => 재귀 CTE에서 depth tracking
+     */
+    @Query(value = """
+        WITH RECURSIVE step AS (
+          SELECT :startId AS current_id, 0 AS depth
+          UNION ALL
+          SELECT p.parent_version_id, s.depth+1
+          FROM dag_version_parents p
+          JOIN step s ON p.child_version_id = s.current_id
+          WHERE s.depth < 3
+        )
+        SELECT dv.*
+        FROM dag_version dv
+        JOIN step st ON dv.id = st.current_id
+        WHERE dv.author = :author
+          AND dv.title LIKE %:titlePart%
+        """, nativeQuery = true)
+    List<DagVersionEntity> findUpTo3StepsByAuthorTitle(
+            @Param("startId") Long startId,
+            @Param("author") String author,
+            @Param("titlePart") String titlePart
+    );
 }

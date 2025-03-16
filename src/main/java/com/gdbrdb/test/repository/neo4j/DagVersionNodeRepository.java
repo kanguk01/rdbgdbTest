@@ -17,7 +17,7 @@ public interface DagVersionNodeRepository extends org.springframework.data.neo4j
           title: row.title,
           content: row.content,
           author: row.author,
-          createdTime: row.createdTime
+          createdTime: datetime(row.createdTime)
         })
         FOREACH (pId IN row.parents |
            MERGE (p:DagVersion { nodeId: pId })
@@ -75,4 +75,21 @@ public interface DagVersionNodeRepository extends org.springframework.data.neo4j
             @Param("idA") String idA,
             @Param("idB") String idB
     );
+
+    /**
+     * 시나리오 E) 예: 특정 노드로부터 최대 3단계 이내로 연결된 노드들 중
+     * author='chulsu'이고, title CONTAINS 'ppt' 인 노드를 찾는 패턴
+     */
+    @Query("""
+        MATCH (start:DagVersion { nodeId: $startId })-[:PARENT_OF*0..3]->(mid:DagVersion)
+        WHERE mid.author = $author
+          AND mid.title CONTAINS $titlePart
+        RETURN DISTINCT mid
+    """)
+    List<DagVersionNode> findUpTo3StepsByAuthorTitle(
+            @Param("startId") String startId,
+            @Param("author") String author,
+            @Param("titlePart") String titlePart
+    );
+
 }

@@ -7,6 +7,7 @@ import org.springframework.data.neo4j.core.schema.Property;
 import org.springframework.data.neo4j.core.schema.Relationship;
 
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -25,7 +26,7 @@ public class DagVersionNode {
     private String author;
 
     @Property("createdTime")
-    private String createdTime;
+    private OffsetDateTime createdTime;
 
     @Relationship(type = "PARENT_OF", direction = Relationship.Direction.INCOMING)
     private List<DagVersionNode> parents = new ArrayList<>();
